@@ -1,73 +1,111 @@
 <script>
   import pb from '#lib/pb.js'
   import Alert from '#lib/components/Alert.svelte'
+  import Icon from '#lib/components/Icon.svelte'
+  import PageHeader from '#lib/components/PageHeader.svelte'
+  import CopyButton from '#lib/components/CopyButton.svelte'
+  import { toast } from '#lib/toast.svelte.js'
   import { errMsg } from '#lib/format.js'
 
   const base = window.location.origin
-  let info = $state('')
-  let error = $state('')
+  let busy = $state(false)
 
-  const simple = `curl -X POST ${base}/api/v1/send \\
-  -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" \\
-  -d '{"phone": "7731234567", "text": "Tu pedido va en camino"}'`
-
-  const template = `curl -X POST ${base}/api/v1/send \\
-  -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" \\
+  const examples = [
+    {
+      title: 'Mensaje simple',
+      code: `curl -X POST ${base}/api/v1/send \\
+  -H "X-API-Key: TU_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"phone": "7731234567", "text": "Tu pedido va en camino"}'`,
+    },
+    {
+      title: 'Con plantilla (elige una variante al azar)',
+      code: `curl -X POST ${base}/api/v1/send \\
+  -H "X-API-Key: TU_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{"phone": "7731234567", "template": "recordatorio",
-       "vars": {"nombre": "Ana", "hora": "5 pm"}}'`
+       "vars": {"nombre": "Ana", "hora": "5 pm"}}'`,
+    },
+    {
+      title: 'Programar y consultar estado',
+      code: `# Programar para una hora concreta (ISO 8601)
+curl -X POST ${base}/api/v1/send -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"phone": "7731234567", "text": "Hola", "sendAt": "2026-10-10T15:00:00Z"}'
 
-  const status = `curl ${base}/api/v1/messages/ID_DEL_MENSAJE -H "X-API-Key: TU_API_KEY"`
+# Estado del mensaje (usa el id de la respuesta)
+curl ${base}/api/v1/messages/ID_DEL_MENSAJE -H "X-API-Key: TU_API_KEY"`,
+    },
+  ]
+
+  const endpoints = [
+    ['POST', '/api/v1/send', 'Envía a uno o varios números (máx. 20 por llamada). Responde 202 con id y hora programada.'],
+    ['GET', '/api/v1/messages/{id}', 'Estado: pending, queued, sent, delivered, failed o cancelled.'],
+    ['GET', '/api/v1/templates', 'Plantillas activas disponibles.'],
+  ]
 
   async function registerWebhook() {
-    info = error = ''
+    busy = true
     try {
       const r = await pb.send('/api/app/gateway/webhook', { method: 'POST' })
-      info = `Gateway respondió ${r.status}`
+      toast(`Gateway respondió ${r.status}`, r.status < 300 ? 'success' : 'error')
     } catch (err) {
-      error = errMsg(err)
+      toast(errMsg(err), 'error')
+    } finally {
+      busy = false
     }
   }
 </script>
 
-<h1 class="text-2xl font-semibold mb-2">API de envíos</h1>
-<p class="text-sm opacity-70 mb-4">
-  Autenticación con la cabecera <code>X-API-Key</code> (variable <code>API_KEY</code> del servidor). Los envíos entran en la misma cola
-  que las campañas: respetan pausas aleatorias, horario y tope diario, así que la respuesta devuelve la hora programada.
-</p>
+<PageHeader title="API" description="Integra el envío de SMS en tus sistemas. Comparte cola, pausas aleatorias, horario y tope diario con el resto de la app." />
 
-<section class="grid gap-4">
-  <div>
-    <h2 class="font-semibold mb-1">Mensaje simple</h2>
-    <pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto">{simple}</pre>
+<section class="grid gap-4" aria-label="Ejemplos">
+  <div class="flex items-start gap-3 rounded-box border border-base-300 bg-base-100 p-5 text-sm">
+    <Icon name="shield" size={18} class="mt-0.5 shrink-0 text-primary" />
+    <div>
+      <p class="font-medium">Autenticación</p>
+      <p class="mt-1 text-base-content/70">
+        Envía la cabecera <code class="rounded bg-base-200 px-1.5 py-0.5">X-API-Key</code> con el valor de la variable
+        <code class="rounded bg-base-200 px-1.5 py-0.5">CAMPAIGNS_API_KEY</code> de tu servidor. No la expongas en aplicaciones web o móviles: úsala solo desde tu backend.
+      </p>
+    </div>
   </div>
-  <div>
-    <h2 class="font-semibold mb-1">Con plantilla (elige una variante al azar)</h2>
-    <pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto">{template}</pre>
-  </div>
-  <div>
-    <h2 class="font-semibold mb-1">Consultar estado</h2>
-    <pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto">{status}</pre>
-  </div>
-  <div class="text-sm">
-    <h2 class="font-semibold mb-1">Detalles</h2>
-    <ul class="list-disc pl-5 grid gap-1">
-      <li><code>phone</code> o <code>phones</code> (máx. 20). Se normaliza a +52 si trae 10 dígitos.</li>
-      <li><code>text</code> (hasta 640) o <code>template</code> + <code>vars</code>. <code>{'{nombre}'}</code> se toma del contacto si existe.</li>
-      <li><code>sendAt</code> opcional (ISO 8601) para programar. Respuesta <code>202</code> con <code>messages[].id</code> y <code>scheduledAt</code>.</li>
-      <li>Estados: pending, queued, sent, delivered, failed, cancelled.</li>
-      <li>Los números que respondieron BAJA se omiten y aparecen en <code>skipped</code>.</li>
-      <li><code>GET /api/v1/templates</code> lista las plantillas activas.</li>
+
+  {#each examples as ex}
+    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+      <div class="flex items-center justify-between border-b border-base-300 px-4 py-2">
+        <h2 class="text-sm font-medium">{ex.title}</h2>
+        <CopyButton text={ex.code} />
+      </div>
+      <pre class="overflow-x-auto bg-neutral p-4 text-xs leading-relaxed text-neutral-content"><code>{ex.code}</code></pre>
+    </div>
+  {/each}
+
+  <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+    <div class="border-b border-base-300 px-4 py-2"><h2 class="text-sm font-medium">Endpoints</h2></div>
+    <ul class="divide-y divide-base-200 text-sm">
+      {#each endpoints as [method, path, desc]}
+        <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
+          <span class="w-12 rounded bg-primary/10 px-1.5 py-0.5 text-center text-xs font-semibold text-primary">{method}</span>
+          <code class="font-mono text-xs">{path}</code>
+          <span class="basis-full text-base-content/60 sm:basis-auto">{desc}</span>
+        </li>
+      {/each}
     </ul>
+    <div class="border-t border-base-300 px-4 py-3 text-xs text-base-content/60">
+      Parámetros de <code>/send</code>: <code>phone</code> o <code>phones</code>, <code>text</code> (hasta 640) o <code>template</code> + <code>vars</code>, <code>sendAt</code> opcional.
+      <code>{'{nombre}'}</code> se toma del contacto si existe. Los números que respondieron BAJA aparecen en <code>skipped</code>.
+    </div>
   </div>
 
-  <div class="card bg-base-200 p-4 gap-2">
-    <h2 class="font-semibold">Bajas automáticas (BAJA)</h2>
-    <p class="text-sm opacity-70">
-      Registra en el gateway el webhook de SMS recibidos para marcar como baja a quien responda BAJA, STOP o ALTO.
-      Requiere <code>PUBLIC_URL</code> y <code>WEBHOOK_SECRET</code> en el servidor.
+  <div class="rounded-box border border-base-300 bg-base-100 p-5">
+    <h2 class="font-medium">Bajas automáticas (BAJA)</h2>
+    <p class="mt-1 text-sm text-base-content/60">
+      Registra en el gateway el aviso de SMS recibidos para que quien responda BAJA, STOP o ALTO quede excluido y se cancelen sus pendientes.
+      Requiere <code>CAMPAIGNS_PUBLIC_URL</code> y <code>CAMPAIGNS_WEBHOOK_SECRET</code> en el servidor.
     </p>
-    <button class="btn btn-sm self-start" onclick={registerWebhook}>Registrar webhook</button>
-    <Alert message={error} />
-    <Alert type="success" message={info} />
+    <button class="btn btn-sm mt-3" disabled={busy} onclick={registerWebhook}>
+      {#if busy}<span class="loading loading-spinner loading-xs"></span>{/if}
+      Registrar webhook
+    </button>
   </div>
 </section>

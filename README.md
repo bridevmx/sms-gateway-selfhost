@@ -20,8 +20,9 @@ desplegar en Coolify, con MariaDB y worker de mantenimiento.
 
 ## Mensajes programados y API de envíos (`app/`)
 
-Web (PocketBase + SvelteKit) para contactos con consentimiento, plantillas y campañas con
-pausas aleatorias, horario de envío, tope diario y hasta 5 variantes de mensaje. Incluye una API
+Web (PocketBase + SvelteKit) con resumen, historial de mensajes (filtros, detalle, reintentar/cancelar,
+exportar CSV), envío manual con vista previa y programación, contactos con consentimiento, plantillas y
+campañas con pausas aleatorias, horario de envío, tope diario y hasta 5 variantes de mensaje. Incluye una API
 (`X-API-Key`) para envíos simples o con plantilla que comparte la misma cola y límites.
 
 1. Variables nuevas en Coolify: `PB_ADMIN_EMAIL`, `PB_ADMIN_PASSWORD`, `CAMPAIGNS_API_KEY`,

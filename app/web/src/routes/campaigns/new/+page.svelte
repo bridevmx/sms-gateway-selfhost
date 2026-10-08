@@ -3,8 +3,12 @@
   import { goto } from '$app/navigation'
   import pb from '#lib/pb.js'
   import Alert from '#lib/components/Alert.svelte'
+  import Icon from '#lib/components/Icon.svelte'
+  import PageHeader from '#lib/components/PageHeader.svelte'
+  import PhonePreview from '#lib/components/PhonePreview.svelte'
   import VariantsEditor from '#lib/components/VariantsEditor.svelte'
-  import { errMsg } from '#lib/format.js'
+  import { toast } from '#lib/toast.svelte.js'
+  import { initials, errMsg } from '#lib/format.js'
 
   let contacts = $state([])
   let limits = $state({ minDelayFloor: 20, maxPerDay: 150, maxCampaignSize: 500 })
@@ -30,11 +34,11 @@
 
   onMount(async () => {
     try {
-      contacts = await pb.collection('contacts').getFullList({
-        filter: 'consent = true && opted_out = false',
-        sort: 'name',
-      })
-      const st = await pb.send('/api/app/status', {})
+      const [c, st] = await Promise.all([
+        pb.collection('contacts').getFullList({ filter: 'consent = true && opted_out = false', sort: 'name' }),
+        pb.send('/api/app/status', {}),
+      ])
+      contacts = c
       if (st.limits) limits = st.limits
     } catch (err) {
       error = errMsg(err)
@@ -49,7 +53,10 @@
   )
   const chosen = $derived(Object.keys(selected).filter((id) => selected[id]))
   const avg = $derived((Math.max(minDelay, limits.minDelayFloor) + Math.max(maxDelay, minDelay)) / 2)
-  const estimateMin = $derived(Math.round((chosen.length * avg) / 60))
+  const hoursPerDay = $derived(Math.max(1, windowEnd - windowStart))
+  const perDay = $derived(Math.min(Number(dailyLimit) || 1, limits.maxPerDay, Math.floor((hoursPerDay * 3600) / avg)))
+  const days = $derived(Math.max(1, Math.ceil(chosen.length / perDay)))
+  const firstVariant = $derived((variants[0] || '').replace(/\{nombre\}/g, (contacts.find((c) => selected[c.id])?.name || '').split(/\s+/)[0]).trim())
 
   function toggleAll(on) {
     const next = { ...selected }
@@ -83,7 +90,8 @@
         window_end: Number(windowEnd),
         optout_footer: optoutFooter,
       })
-      await pb.send(`/api/app/campaigns/${draft.id}/start`, { method: 'POST', body: { contactIds: chosen } })
+      const res = await pb.send(`/api/app/campaigns/${draft.id}/start`, { method: 'POST', body: { contactIds: chosen } })
+      toast(`Campaña programada: ${res.created} mensajes`)
       goto(`/campaigns/${draft.id}`)
     } catch (err) {
       error = errMsg(err)
@@ -93,83 +101,105 @@
   }
 </script>
 
-<h1 class="text-2xl font-semibold mb-4">Nueva campaña</h1>
-<Alert message={error} />
+<a href="/campaigns" class="mb-3 inline-flex items-center gap-1 text-sm text-base-content/60 hover:text-base-content">
+  <Icon name="chevronL" size={14} /> Campañas
+</a>
+<PageHeader title="Nueva campaña" description="Define el mensaje, el ritmo de envío y a quién va dirigido." />
 
-<form class="grid gap-6 mt-4" onsubmit={submit} aria-label="Nueva campaña">
-  <label class="form-control">
-    <span class="label-text mb-1">Nombre</span>
-    <input class="input input-bordered w-full" bind:value={name} required />
-  </label>
+<form class="grid gap-5 lg:grid-cols-[1fr_20rem]" onsubmit={submit} aria-label="Nueva campaña">
+  <div class="grid content-start gap-5">
+    <Alert message={error} />
 
-  <VariantsEditor bind:values={variants} />
-
-  <label class="label cursor-pointer justify-start gap-2">
-    <input type="checkbox" class="checkbox checkbox-sm" bind:checked={optoutFooter} />
-    <span class="label-text">Agregar al final "Responde BAJA para no recibir mas mensajes."</span>
-  </label>
-
-  <fieldset class="card bg-base-200 p-4 grid gap-3 sm:grid-cols-2">
-    <legend class="font-semibold px-1">Programación y ritmo de envío</legend>
-    <label class="form-control sm:col-span-2">
-      <span class="label-text mb-1">Inicio</span>
-      <input type="datetime-local" class="input input-bordered w-full max-w-xs" bind:value={startAt} required />
-    </label>
-    <label class="form-control">
-      <span class="label-text mb-1">Pausa mínima entre mensajes (s)</span>
-      <input type="number" class="input input-bordered w-full" min={limits.minDelayFloor} bind:value={minDelay} />
-    </label>
-    <label class="form-control">
-      <span class="label-text mb-1">Pausa máxima (s)</span>
-      <input type="number" class="input input-bordered w-full" min={minDelay} bind:value={maxDelay} />
-    </label>
-    <label class="form-control">
-      <span class="label-text mb-1">Máximo por día (tope {limits.maxPerDay})</span>
-      <input type="number" class="input input-bordered w-full" min="1" max={limits.maxPerDay} bind:value={dailyLimit} />
-    </label>
-    <div class="grid grid-cols-2 gap-2">
-      <label class="form-control">
-        <span class="label-text mb-1">Desde (hora)</span>
-        <input type="number" class="input input-bordered w-full" min="0" max="23" bind:value={windowStart} />
+    <section class="grid gap-4 rounded-box border border-base-300 bg-base-100 p-5" aria-labelledby="c1">
+      <h2 id="c1" class="font-medium">Mensaje</h2>
+      <label class="grid gap-1.5 text-sm">
+        <span class="font-medium">Nombre de la campaña</span>
+        <input class="input w-full" bind:value={name} placeholder="Ej. Recordatorio de citas" required />
       </label>
-      <label class="form-control">
-        <span class="label-text mb-1">Hasta (hora)</span>
-        <input type="number" class="input input-bordered w-full" min="1" max="24" bind:value={windowEnd} />
+      <VariantsEditor bind:values={variants} />
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <input type="checkbox" class="checkbox checkbox-sm" bind:checked={optoutFooter} />
+        Agregar "Responde BAJA para no recibir mas mensajes."
       </label>
-    </div>
-    <p class="text-xs opacity-70 sm:col-span-2">
-      Los envíos se reparten con pausas aleatorias, solo dentro del horario y sin pasar del máximo diario.
-      Lo que sobre continúa al día siguiente.
-    </p>
-  </fieldset>
+    </section>
 
-  <section aria-labelledby="who-title">
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-      <h2 id="who-title" class="font-semibold">Destinatarios ({chosen.length} seleccionados)</h2>
-      <div class="flex gap-2">
-        <button type="button" class="btn btn-ghost btn-xs" onclick={() => toggleAll(true)}>Marcar visibles</button>
-        <button type="button" class="btn btn-ghost btn-xs" onclick={() => toggleAll(false)}>Quitar visibles</button>
-      </div>
-    </div>
-    <input class="input input-bordered input-sm w-full max-w-xs mb-2" placeholder="Buscar…" bind:value={search} aria-label="Buscar contactos" />
-    <div class="max-h-72 overflow-y-auto border border-base-300 rounded-box">
-      {#each visible as c (c.id)}
-        <label class="flex items-center gap-3 px-3 py-2 border-b border-base-200 cursor-pointer">
-          <input type="checkbox" class="checkbox checkbox-sm" bind:checked={selected[c.id]} />
-          <span class="flex-1">{c.name || 'Sin nombre'}</span>
-          <span class="text-sm opacity-70">{c.phone}</span>
+    <section class="rounded-box border border-base-300 bg-base-100 p-5" aria-labelledby="c2">
+      <h2 id="c2" class="mb-4 font-medium">Programación y ritmo</h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="grid gap-1.5 text-sm sm:col-span-2">
+          <span class="font-medium">Inicio</span>
+          <input type="datetime-local" class="input w-full max-w-xs" bind:value={startAt} required />
         </label>
-      {:else}
-        <p class="p-3 text-sm opacity-70">No hay contactos con consentimiento. Agrégalos en Contactos.</p>
-      {/each}
-    </div>
-    {#if chosen.length}
-      <p class="text-xs opacity-70 mt-2">Duración estimada: ~{estimateMin} min de envío efectivo (sin contar pausas nocturnas).</p>
-    {/if}
-  </section>
+        <label class="grid gap-1.5 text-sm">
+          <span class="font-medium">Pausa mínima (s)</span>
+          <input type="number" class="input w-full" min={limits.minDelayFloor} bind:value={minDelay} />
+          <span class="text-xs text-base-content/50">Mínimo permitido: {limits.minDelayFloor} s</span>
+        </label>
+        <label class="grid gap-1.5 text-sm">
+          <span class="font-medium">Pausa máxima (s)</span>
+          <input type="number" class="input w-full" min={minDelay} bind:value={maxDelay} />
+          <span class="text-xs text-base-content/50">Cada pausa es aleatoria entre ambas</span>
+        </label>
+        <label class="grid gap-1.5 text-sm">
+          <span class="font-medium">Máximo por día</span>
+          <input type="number" class="input w-full" min="1" max={limits.maxPerDay} bind:value={dailyLimit} />
+          <span class="text-xs text-base-content/50">Tope del servidor: {limits.maxPerDay}</span>
+        </label>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <label class="grid gap-1.5"><span class="font-medium">Desde (hora)</span>
+            <input type="number" class="input w-full" min="0" max="23" bind:value={windowStart} /></label>
+          <label class="grid gap-1.5"><span class="font-medium">Hasta (hora)</span>
+            <input type="number" class="input w-full" min="1" max="24" bind:value={windowEnd} /></label>
+        </div>
+      </div>
+      <p class="mt-3 text-xs text-base-content/50">Solo se envía dentro del horario; lo que no alcance continúa al día siguiente.</p>
+    </section>
 
-  <button class="btn btn-primary self-start" disabled={busy}>
-    {#if busy}<span class="loading loading-spinner loading-sm"></span>{/if}
-    Programar campaña
-  </button>
+    <section class="rounded-box border border-base-300 bg-base-100" aria-labelledby="c3">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+        <h2 id="c3" class="font-medium">Destinatarios <span class="text-base-content/50">({chosen.length} seleccionados)</span></h2>
+        <div class="flex gap-1">
+          <button type="button" class="btn btn-ghost btn-xs" onclick={() => toggleAll(true)}>Marcar visibles</button>
+          <button type="button" class="btn btn-ghost btn-xs" onclick={() => toggleAll(false)}>Quitar visibles</button>
+        </div>
+      </div>
+      <div class="px-5 pt-3">
+        <label class="input input-sm flex items-center gap-2">
+          <Icon name="search" size={15} />
+          <input type="search" class="grow" placeholder="Buscar contactos" bind:value={search} aria-label="Buscar contactos" />
+        </label>
+      </div>
+      <ul class="mt-3 max-h-72 divide-y divide-base-200 overflow-y-auto border-t border-base-300">
+        {#each visible as c (c.id)}
+          <li>
+            <label class="flex cursor-pointer items-center gap-3 px-5 py-2.5 hover:bg-base-200/60">
+              <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" bind:checked={selected[c.id]} />
+              <span class="grid size-8 place-items-center rounded-full bg-base-200 text-xs font-medium text-base-content/70">{initials(c.name)}</span>
+              <span class="flex-1 text-sm font-medium">{c.name || 'Sin nombre'}</span>
+              <span class="text-sm text-base-content/50">{c.phone}</span>
+            </label>
+          </li>
+        {:else}
+          <li class="p-5 text-sm text-base-content/60">No hay contactos con consentimiento. <a class="text-primary hover:underline" href="/contacts">Agrégalos en Contactos</a>.</li>
+        {/each}
+      </ul>
+    </section>
+  </div>
+
+  <aside class="lg:sticky lg:top-6 lg:self-start" aria-label="Resumen de la campaña">
+    <div class="rounded-box border border-base-300 bg-base-100 p-5">
+      <h2 class="mb-4 font-medium">Resumen</h2>
+      <PhonePreview text={firstVariant} note="Escribe la variante 1 para ver la vista previa" />
+      <dl class="mt-5 grid gap-2 text-sm">
+        <div class="flex justify-between"><dt class="text-base-content/60">Destinatarios</dt><dd class="font-medium tabular-nums">{chosen.length}</dd></div>
+        <div class="flex justify-between"><dt class="text-base-content/60">Pausa</dt><dd class="font-medium tabular-nums">{Math.max(minDelay, limits.minDelayFloor)}–{Math.max(maxDelay, minDelay)} s</dd></div>
+        <div class="flex justify-between"><dt class="text-base-content/60">Por día (aprox.)</dt><dd class="font-medium tabular-nums">{perDay}</dd></div>
+        <div class="flex justify-between"><dt class="text-base-content/60">Duración aprox.</dt><dd class="font-medium">{chosen.length ? `${days} día${days === 1 ? '' : 's'}` : '—'}</dd></div>
+      </dl>
+      <button class="btn btn-primary mt-5 w-full gap-2" disabled={busy || chosen.length === 0}>
+        {#if busy}<span class="loading loading-spinner loading-sm"></span>{:else}<Icon name="calendar" size={16} />{/if}
+        Programar campaña
+      </button>
+    </div>
+  </aside>
 </form>

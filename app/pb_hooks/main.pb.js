@@ -41,6 +41,10 @@ routerAdd("GET", "/api/app/status", (e) => {
       maxPerDay: cfg.maxPerDay,
       maxCampaignSize: cfg.maxCampaignSize,
       tzOffsetMin: cfg.tz,
+      apiMinDelay: Math.max(cfg.minDelayFloor, cfg.apiMinDelay),
+      apiMaxDelay: Math.max(cfg.apiMinDelay, cfg.apiMaxDelay),
+      apiWindowStart: cfg.apiWindowStart,
+      apiWindowEnd: cfg.apiWindowEnd,
     },
   })
 }, $apis.requireSuperuserAuth())
@@ -199,6 +203,50 @@ routerAdd("POST", "/api/app/campaigns/{id}/retry-failed", (e) => {
   return e.json(200, { retried: failed.length })
 }, $apis.requireSuperuserAuth())
 
+// Envío manual desde la web ("Nuevo mensaje"): mismas reglas y cola que la API.
+routerAdd("POST", "/api/app/send", (e) => {
+  const cfg = require(`${__hooks}/lib/config.js`).get()
+  const U = require(`${__hooks}/lib/util.js`)
+  const S = require(`${__hooks}/lib/sender.js`)
+  return e.json(202, S.send(e.app, U.bodyOf(e), "manual", cfg.maxCampaignSize))
+}, $apis.requireSuperuserAuth())
+
+// Cancela un mensaje que aún no salió (pendiente, o en cola del gateway sin procesar).
+routerAdd("POST", "/api/app/messages/{id}/cancel", (e) => {
+  const gw = require(`${__hooks}/lib/gateway.js`)
+  const U = require(`${__hooks}/lib/util.js`)
+  const m = U.find(e.app, "messages", e.request.pathValue("id"))
+  const st = m.getString("state")
+  if (st === "queued") {
+    const r = gw.cancel(m.getString("gateway_id"))
+    if (r.status !== 200) throw new BadRequestError("El dispositivo ya está procesando este mensaje")
+  } else if (st !== "pending") {
+    throw new BadRequestError("Solo se pueden cancelar mensajes pendientes o en cola")
+  }
+  m.set("state", "cancelled")
+  e.app.save(m)
+  return e.json(200, { id: m.id, state: "cancelled" })
+}, $apis.requireSuperuserAuth())
+
+// Reintenta un mensaje fallido (se vuelve a programar respetando pausas y límites).
+routerAdd("POST", "/api/app/messages/{id}/retry", (e) => {
+  const cfg = require(`${__hooks}/lib/config.js`).get()
+  const M = require(`${__hooks}/lib/messages.js`)
+  const U = require(`${__hooks}/lib/util.js`)
+  const m = U.find(e.app, "messages", e.request.pathValue("id"))
+  if (m.getString("state") !== "failed") throw new BadRequestError("Solo se reintentan mensajes fallidos")
+  const cid = m.getString("campaign")
+  const opts = cid ? M.campaignOpts(U.find(e.app, "campaigns", cid), cfg) : M.apiOpts(cfg)
+  m.set("attempts", 0)
+  m.set("error", "")
+  m.set("gateway_id", "")
+  let at = 0
+  e.app.runInTransaction((txApp) => {
+    at = M.reschedule(txApp, [m], Date.now() + 10000, opts)[0]
+  })
+  return e.json(200, { id: m.id, state: "pending", scheduledAt: new Date(at).toISOString() })
+}, $apis.requireSuperuserAuth())
+
 // ---------------------------------------------------------------------------
 // Bajas: el gateway notifica los SMS recibidos. "BAJA" marca el contacto y cancela pendientes.
 // ---------------------------------------------------------------------------
@@ -251,88 +299,11 @@ routerAdd("POST", "/api/app/webhook/sms", (e) => {
 //  opcional:   "sendAt": "2026-10-10T15:00:00Z"
 routerAdd("POST", "/api/v1/send", (e) => {
   const cfg = require(`${__hooks}/lib/config.js`).get()
-  const M = require(`${__hooks}/lib/messages.js`)
-  const P = require(`${__hooks}/lib/phone.js`)
   const U = require(`${__hooks}/lib/util.js`)
-
+  const S = require(`${__hooks}/lib/sender.js`)
   const key = e.request.header.get("X-API-Key") || ""
   if (!cfg.apiKey || !$security.equal(key, cfg.apiKey)) throw new UnauthorizedError("API key inválida")
-  if (!cfg.gatewayUser || !cfg.gatewayPass) throw new ApiError(503, "Gateway no configurado", {})
-
-  const body = U.bodyOf(e)
-  let rawPhones = []
-  if (Array.isArray(body.phones)) rawPhones = body.phones
-  else if (body.phone) rawPhones = [body.phone]
-  if (rawPhones.length === 0) throw new BadRequestError("Indica phone o phones")
-  if (rawPhones.length > cfg.apiMaxBatch) throw new BadRequestError("Máximo " + cfg.apiMaxBatch + " destinatarios por llamada")
-
-  let variants = []
-  const plainText = typeof body.text === "string" ? body.text.trim() : ""
-  if (body.template) {
-    const tpl = U.findOrNull(e.app, "templates", "slug = {:s} && active = true", { s: String(body.template) })
-    if (!tpl) throw new NotFoundError("Plantilla no encontrada o inactiva")
-    variants = M.variantsOf(tpl)
-    if (variants.length === 0) throw new BadRequestError("La plantilla no tiene variantes")
-  } else if (plainText) {
-    variants = [plainText]
-  } else {
-    throw new BadRequestError("Indica text o template")
-  }
-  const vars = body.vars && typeof body.vars === "object" ? body.vars : {}
-
-  let start = Date.now() + 5000
-  if (body.sendAt) {
-    const t = new Date(String(body.sendAt)).getTime()
-    if (isNaN(t)) throw new BadRequestError("sendAt inválido (usa ISO 8601)")
-    start = Math.max(start, t)
-  }
-
-  const items = []
-  const skipped = []
-  const dup = {}
-  let prev = -1
-  for (let i = 0; i < rawPhones.length; i++) {
-    const phone = P.normalize(String(rawPhones[i]), cfg.defaultCountry)
-    if (!phone) {
-      skipped.push({ phone: String(rawPhones[i]), reason: "teléfono inválido" })
-      continue
-    }
-    if (dup[phone]) continue
-    dup[phone] = true
-    const c = U.findOrNull(e.app, "contacts", "phone = {:p}", { p: phone })
-    if (c && c.getBool("opted_out")) {
-      skipped.push({ phone: phone, reason: "se dio de baja" })
-      continue
-    }
-    const v = M.pickVariant(variants.length, prev)
-    prev = v
-    const merged = Object.assign({ nombre: c ? M.firstName(c.getString("name")) : "" }, vars)
-    const text = M.render(variants[v], merged)
-    if (!text) {
-      skipped.push({ phone: phone, reason: "mensaje vacío" })
-      continue
-    }
-    if (text.length > 640) {
-      skipped.push({ phone: phone, reason: "mensaje demasiado largo (máx. 640)" })
-      continue
-    }
-    items.push({ phone: phone, contactId: c ? c.id : "", text: text, variant: v })
-  }
-  if (items.length === 0) throw new BadRequestError("Ningún destinatario válido: " + JSON.stringify(skipped))
-
-  let res = { ids: [], times: [] }
-  e.app.runInTransaction((txApp) => {
-    res = M.createScheduled(txApp, items, start, M.apiOpts(cfg), "api", "")
-  })
-
-  return e.json(202, {
-    messages: res.ids.map((id, i) => ({
-      id: id,
-      phone: items[i].phone,
-      scheduledAt: new Date(res.times[i]).toISOString(),
-    })),
-    skipped: skipped,
-  })
+  return e.json(202, S.send(e.app, U.bodyOf(e), "api", cfg.apiMaxBatch))
 })
 
 // GET /api/v1/messages/{id}
