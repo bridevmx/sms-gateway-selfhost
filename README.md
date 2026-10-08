@@ -9,6 +9,7 @@ desplegar en Coolify, con MariaDB y worker de mantenimiento.
 - **Tablet:** `scripts/tablet-setup.sh`
 - **Prueba de envío:** `scripts/send-test.sh`
 - **Mensajes programados + API de envíos:** carpeta [app/](app/) (servicio `campaigns` del compose)
+- **Documentación de la API** (enviar, estados, contactos, plantillas, errores, recetas): [docs/API.md](docs/API.md)
 
 ## Inicio rápido
 

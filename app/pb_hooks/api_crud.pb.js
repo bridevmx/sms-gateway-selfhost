@@ -47,7 +47,7 @@ routerAdd("POST", "/api/v1/contacts", (e) => {
   const phone = P.normalize(String(body.phone || ""), cfg.defaultCountry)
   if (!phone) throw new BadRequestError("Teléfono inválido")
   const dup = U.findOrNull(e.app, "contacts", "phone = {:p}", { p: phone })
-  if (dup) throw new ApiError(409, "Ya existe un contacto con ese teléfono", { id: dup.id })
+  if (dup) throw new ApiError(409, "Ya existe un contacto con ese teléfono (id " + dup.id + ")", {})
 
   const rec = new Record(e.app.findCollectionByNameOrId("contacts"))
   rec.set("phone", phone)
@@ -73,7 +73,7 @@ routerAdd("PATCH", "/api/v1/contacts/{id}", (e) => {
     const phone = P.normalize(String(body.phone || ""), cfg.defaultCountry)
     if (!phone) throw new BadRequestError("Teléfono inválido")
     const dup = U.findOrNull(e.app, "contacts", "phone = {:p} && id != {:id}", { p: phone, id: rec.id })
-    if (dup) throw new ApiError(409, "Ya existe un contacto con ese teléfono", { id: dup.id })
+    if (dup) throw new ApiError(409, "Ya existe un contacto con ese teléfono (id " + dup.id + ")", {})
     rec.set("phone", phone)
   }
   if (body.name !== undefined) rec.set("name", C.str(body.name, 120))
