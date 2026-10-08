@@ -44,6 +44,14 @@
   }
 
   onMount(() => {
+    // Valida (y renueva) la sesión guardada: si el servidor ya no la acepta, vuelve al login.
+    if (pb.authStore.isValid) {
+      pb.collection('_superusers')
+        .authRefresh()
+        .catch((err) => {
+          if (err?.status === 401 || err?.status === 403 || err?.status === 404) pb.authStore.clear()
+        })
+    }
     loadGateway()
     const t = setInterval(loadGateway, 30000)
     return () => clearInterval(t)
