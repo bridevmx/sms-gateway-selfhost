@@ -11,10 +11,17 @@ RUN npm run build
 # --- Etapa 2: PocketBase ---
 FROM alpine:3.20
 ARG PB_VERSION=0.40.5
-ARG TARGETARCH=amd64
+# La arquitectura se detecta con uname (TARGETARCH depende del builder y puede venir vacío).
 RUN apk add --no-cache ca-certificates tzdata unzip wget \
- && wget -q "https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_${TARGETARCH}.zip" -O /tmp/pb.zip \
- && unzip -q /tmp/pb.zip -d /pb && rm /tmp/pb.zip && chmod +x /pb/pocketbase
+ && case "$(uname -m)" in \
+      x86_64) ARCH=amd64 ;; \
+      aarch64) ARCH=arm64 ;; \
+      armv7l|armv6l) ARCH=armv7 ;; \
+      *) echo "Arquitectura no soportada: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+ && wget -q "https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_${ARCH}.zip" -O /tmp/pb.zip \
+ && unzip -q /tmp/pb.zip -d /pb && rm /tmp/pb.zip && chmod +x /pb/pocketbase \
+ && /pb/pocketbase --version
 
 WORKDIR /pb
 COPY pb_migrations ./pb_migrations
