@@ -9,3 +9,12 @@ config.yml
 
 # Sistema
 .DS_Store
+
+# App de mensajes programados
+app/pb_data/
+app/web/node_modules/
+app/web/build/
+app/web/.svelte-kit/
+
+# Binario local de PocketBase para pruebas
+pocketbase/

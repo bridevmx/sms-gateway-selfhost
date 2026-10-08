@@ -5,6 +5,10 @@
 # (p. ej. https://sms.tudominio.com:3000). Coolify/Traefik emite el certificado HTTPS.
 # NO asignes dominio a "db" ni a "worker".
 #
+# Servicio "campaigns" (web de mensajes programados + API de envíos): asígnale otro
+# dominio con puerto 8090 (p. ej. https://envios.tudominio.com:8090). Habla con el
+# gateway por la red interna (http://server:3000), sin salir a Internet.
+#
 # Las variables marcadas con ":?" son obligatorias: si faltan, el despliegue
 # falla con un mensaje claro en lugar de arrancar con valores vacíos.
 
@@ -48,6 +52,36 @@ services:
       DATABASE__DATABASE: ${DB_NAME:-sms}
       DATABASE__TIMEZONE: UTC
 
+  campaigns:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    expose:
+      - "8090"
+    environment:
+      # Acceso a la web: superusuario que se crea/actualiza al arrancar.
+      PB_ADMIN_EMAIL: ${PB_ADMIN_EMAIL:?define PB_ADMIN_EMAIL}
+      PB_ADMIN_PASSWORD: ${PB_ADMIN_PASSWORD:?define PB_ADMIN_PASSWORD}
+      # Clave que deben enviar tus sistemas en la cabecera X-API-Key.
+      API_KEY: ${CAMPAIGNS_API_KEY:?define CAMPAIGNS_API_KEY}
+      # Credenciales que genera la app de la tablet (Cloud Server) para el API del gateway.
+      GATEWAY_URL: http://server:3000/api/3rdparty/v1
+      GATEWAY_USER: ${GATEWAY_API_USER:-}
+      GATEWAY_PASS: ${GATEWAY_API_PASS:-}
+      # Bajas por SMS ("BAJA"): ver pestaña API de la web.
+      PUBLIC_URL: ${CAMPAIGNS_PUBLIC_URL:-}
+      WEBHOOK_SECRET: ${CAMPAIGNS_WEBHOOK_SECRET:-}
+      # Zona horaria (desfase en minutos respecto a UTC; México = -360) y topes duros.
+      TZ_OFFSET_MIN: ${TZ_OFFSET_MIN:--360}
+      MIN_DELAY_FLOOR: ${MIN_DELAY_FLOOR:-20}
+      MAX_PER_DAY: ${MAX_PER_DAY:-150}
+    volumes:
+      - campaigns_data:/pb/pb_data
+
   db:
     image: mariadb:11
     restart: unless-stopped
@@ -67,3 +101,4 @@ services:
 
 volumes:
   db_data:
+  campaigns_data:
