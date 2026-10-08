@@ -1,0 +1,11 @@
+# Secretos y configuración real
+.env
+.env.*
+!.env.example
+config.yml
+
+# APKs descargados
+*.apk
+
+# Sistema
+.DS_Store

@@ -1,0 +1,17 @@
+# Alternativa a las variables de entorno: montar este archivo en /app/config.yml.
+# Basado en la documentación oficial (modo privado). Descarga la plantilla completa con:
+#   wget https://raw.githubusercontent.com/android-sms-gateway/server/master/configs/config.example.yml
+#
+# NO subas un config.yml real al repositorio (está en .gitignore).
+gateway:
+  mode: private
+  private_token: cambia-esto   # debe coincidir con el token de la app Android
+http:
+  listen: 0.0.0.0:3000
+database:
+  host: db
+  port: 3306
+  user: sms
+  password: cambia-esto
+  database: sms
+  timezone: UTC

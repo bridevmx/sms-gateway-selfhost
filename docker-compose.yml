@@ -1,0 +1,69 @@
+# Despliegue en Coolify (recurso tipo "Docker Compose" desde repositorio Git).
+# Servicios: server (API), worker (mantenimiento) y db (MariaDB).
+#
+# En Coolify: asigna el dominio al servicio "server" con puerto 3000
+# (p. ej. https://sms.tudominio.com:3000). Coolify/Traefik emite el certificado HTTPS.
+# NO asignes dominio a "db" ni a "worker".
+#
+# Las variables marcadas con ":?" son obligatorias: si faltan, el despliegue
+# falla con un mensaje claro en lugar de arrancar con valores vacíos.
+
+services:
+  server:
+    image: ghcr.io/android-sms-gateway/server:${SERVER_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+    environment:
+      GATEWAY__MODE: private
+      GATEWAY__PRIVATE_TOKEN: ${GATEWAY_PRIVATE_TOKEN:?define GATEWAY_PRIVATE_TOKEN}
+      HTTP__LISTEN: 0.0.0.0:3000
+      DATABASE__HOST: db
+      DATABASE__PORT: "3306"
+      DATABASE__USER: ${DB_USER:-sms}
+      DATABASE__PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD}
+      DATABASE__DATABASE: ${DB_NAME:-sms}
+      DATABASE__TIMEZONE: UTC
+      # Límite de cola por dispositivo (0 = sin límite).
+      MESSAGES__QUEUE__MAX_PENDING: ${QUEUE_MAX_PENDING:-0}
+    # El entrypoint de la imagen ejecuta las migraciones (db:migrate up) al
+    # arrancar con el comando por defecto; la imagen ya trae su HEALTHCHECK.
+
+  worker:
+    image: ghcr.io/android-sms-gateway/server:${SERVER_VERSION:-latest}
+    restart: unless-stopped
+    command: ["/app/app", "worker"]
+    # Espera a que "server" esté sano (migraciones aplicadas) antes de arrancar.
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      DATABASE__HOST: db
+      DATABASE__PORT: "3306"
+      DATABASE__USER: ${DB_USER:-sms}
+      DATABASE__PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD}
+      DATABASE__DATABASE: ${DB_NAME:-sms}
+      DATABASE__TIMEZONE: UTC
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?define DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME:-sms}
+      MARIADB_USER: ${DB_USER:-sms}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  db_data:
