@@ -35,12 +35,50 @@ curl -X POST ${base}/api/v1/send -H "X-API-Key: TU_API_KEY" -H "Content-Type: ap
 # Estado del mensaje (usa el id de la respuesta)
 curl ${base}/api/v1/messages/ID_DEL_MENSAJE -H "X-API-Key: TU_API_KEY"`,
     },
+    {
+      title: 'Contactos y plantillas (CRUD)',
+      code: `# Crear contacto con consentimiento
+curl -X POST ${base}/api/v1/contacts -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"name": "Ana Pérez", "phone": "7731234567", "consent": true}'
+
+# Crear plantilla con 3 variantes
+curl -X POST ${base}/api/v1/templates -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"name": "Recordatorio", "slug": "recordatorio", "variants": ["Hola {nombre}, tu cita es a las {hora}", "{nombre}, te esperamos a las {hora}", "Recordatorio: cita a las {hora}"]}'
+
+# Actualizar y eliminar
+curl -X PATCH ${base}/api/v1/contacts/ID -H "X-API-Key: TU_API_KEY" -H "Content-Type: application/json" -d '{"name": "Ana P."}'
+curl -X DELETE ${base}/api/v1/templates/recordatorio -H "X-API-Key: TU_API_KEY"`,
+    },
   ]
 
   const endpoints = [
-    ['POST', '/api/v1/send', 'Envía a uno o varios números (máx. 20 por llamada). Responde 202 con id y hora programada.'],
-    ['GET', '/api/v1/messages/{id}', 'Estado: pending, queued, sent, delivered, failed o cancelled.'],
-    ['GET', '/api/v1/templates', 'Plantillas activas disponibles.'],
+    {
+      group: 'Envíos',
+      rows: [
+        ['POST', '/api/v1/send', 'Envía a uno o varios números (máx. 20). Responde 202 con id y hora programada.'],
+        ['GET', '/api/v1/messages/{id}', 'Estado: pending, queued, sent, delivered, failed o cancelled.'],
+      ],
+    },
+    {
+      group: 'Contactos',
+      rows: [
+        ['GET', '/api/v1/contacts', 'Lista con ?q= (nombre o teléfono), ?page= y ?perPage= (máx. 200).'],
+        ['GET', '/api/v1/contacts/{id}', 'Un contacto.'],
+        ['POST', '/api/v1/contacts', 'Crea: name, phone, consent, notes. 409 si el teléfono ya existe.'],
+        ['PATCH', '/api/v1/contacts/{id}', 'Actualiza name, phone, consent o notes. "optedOut" es solo lectura.'],
+        ['DELETE', '/api/v1/contacts/{id}', 'Elimina el contacto (204).'],
+      ],
+    },
+    {
+      group: 'Plantillas (por slug)',
+      rows: [
+        ['GET', '/api/v1/templates', 'Lista las activas; con ?all=1 incluye las inactivas. Devuelve las variantes.'],
+        ['GET', '/api/v1/templates/{slug}', 'Una plantilla.'],
+        ['POST', '/api/v1/templates', 'Crea: name, slug, variants (1 a 5 textos), active.'],
+        ['PATCH', '/api/v1/templates/{slug}', 'Actualiza name, variants o active. El slug no cambia.'],
+        ['DELETE', '/api/v1/templates/{slug}', 'Elimina la plantilla (204).'],
+      ],
+    },
   ]
 
   async function registerWebhook() {
@@ -82,18 +120,21 @@ curl ${base}/api/v1/messages/ID_DEL_MENSAJE -H "X-API-Key: TU_API_KEY"`,
 
   <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
     <div class="border-b border-base-300 px-4 py-2"><h2 class="text-sm font-medium">Endpoints</h2></div>
-    <ul class="divide-y divide-base-200 text-sm">
-      {#each endpoints as [method, path, desc]}
-        <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
-          <span class="w-12 rounded bg-primary/10 px-1.5 py-0.5 text-center text-xs font-semibold text-primary">{method}</span>
-          <code class="font-mono text-xs">{path}</code>
-          <span class="basis-full text-base-content/60 sm:basis-auto">{desc}</span>
-        </li>
-      {/each}
-    </ul>
+    {#each endpoints as g}
+      <p class="bg-base-200/60 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-base-content/50">{g.group}</p>
+      <ul class="divide-y divide-base-200 text-sm">
+        {#each g.rows as [method, path, desc]}
+          <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
+            <span class="w-14 rounded bg-primary/10 px-1.5 py-0.5 text-center text-xs font-semibold text-primary">{method}</span>
+            <code class="font-mono text-xs">{path}</code>
+            <span class="basis-full text-base-content/60 sm:basis-auto">{desc}</span>
+          </li>
+        {/each}
+      </ul>
+    {/each}
     <div class="border-t border-base-300 px-4 py-3 text-xs text-base-content/60">
       Parámetros de <code>/send</code>: <code>phone</code> o <code>phones</code>, <code>text</code> (hasta 640) o <code>template</code> + <code>vars</code>, <code>sendAt</code> opcional.
-      <code>{'{nombre}'}</code> se toma del contacto si existe. Los números que respondieron BAJA aparecen en <code>skipped</code>.
+      <code>{'{nombre}'}</code> se toma del contacto si existe. Los números que respondieron BAJA aparecen en <code>skipped</code> y nadie puede reactivarlos por API.
     </div>
   </div>
 

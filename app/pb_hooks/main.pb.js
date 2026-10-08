@@ -86,7 +86,11 @@ routerAdd("POST", "/api/app/campaigns/{id}/start", (e) => {
     throw new BadRequestError("Máximo " + cfg.maxCampaignSize + " contactos por campaña")
   }
 
-  const footer = camp.getBool("optout_footer") ? "\n\nResponde BAJA para no recibir mas mensajes." : ""
+  const footerText = (camp.getString("footer_text") || "Responde BAJA para salir").trim()
+  if (camp.getBool("optout_footer") && !/BAJA|STOP|ALTO|CANCELAR/i.test(footerText)) {
+    throw new BadRequestError("El pie de baja debe incluir la palabra BAJA (o STOP, ALTO, CANCELAR)")
+  }
+  const footer = camp.getBool("optout_footer") ? "\n" + footerText : ""
   const items = []
   const skipped = []
   let prev = -1
@@ -320,18 +324,4 @@ routerAdd("GET", "/api/v1/messages/{id}", (e) => {
     scheduledAt: m.getString("scheduled_at"),
     error: m.getString("error"),
   })
-})
-
-// GET /api/v1/templates
-routerAdd("GET", "/api/v1/templates", (e) => {
-  const cfg = require(`${__hooks}/lib/config.js`).get()
-  const M = require(`${__hooks}/lib/messages.js`)
-  const U = require(`${__hooks}/lib/util.js`)
-  const key = e.request.header.get("X-API-Key") || ""
-  if (!cfg.apiKey || !$security.equal(key, cfg.apiKey)) throw new UnauthorizedError("API key inválida")
-  const rows = U.list(e.app, "templates", "active = true", "name", 200)
-  return e.json(
-    200,
-    rows.map((t) => ({ slug: t.getString("slug"), name: t.getString("name"), variants: M.variantsOf(t).length })),
-  )
 })

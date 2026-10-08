@@ -20,6 +20,7 @@
   let name = $state('')
   let variants = $state(['', '', '', '', ''])
   let optoutFooter = $state(true)
+  let footerText = $state('Responde BAJA para salir')
   let minDelay = $state(60)
   let maxDelay = $state(120)
   let dailyLimit = $state(100)
@@ -56,6 +57,7 @@
   const hoursPerDay = $derived(Math.max(1, windowEnd - windowStart))
   const perDay = $derived(Math.min(Number(dailyLimit) || 1, limits.maxPerDay, Math.floor((hoursPerDay * 3600) / avg)))
   const days = $derived(Math.max(1, Math.ceil(chosen.length / perDay)))
+  const footerSuffix = $derived(optoutFooter && footerText.trim() ? '\n' + footerText.trim() : '')
   const firstVariant = $derived((variants[0] || '').replace(/\{nombre\}/g, (contacts.find((c) => selected[c.id])?.name || '').split(/\s+/)[0]).trim())
 
   function toggleAll(on) {
@@ -70,6 +72,7 @@
     if (!variants[0].trim()) return (error = 'Escribe al menos la variante 1')
     if (chosen.length === 0) return (error = 'Selecciona al menos un contacto')
     if (chosen.length > limits.maxCampaignSize) return (error = `Máximo ${limits.maxCampaignSize} contactos por campaña`)
+    if (optoutFooter && !/BAJA|STOP|ALTO|CANCELAR/i.test(footerText)) return (error = 'El pie de baja debe incluir la palabra BAJA')
     if (windowStart >= windowEnd) return (error = 'La hora de inicio debe ser menor que la de fin')
     busy = true
     let draft
@@ -89,6 +92,7 @@
         window_start: Number(windowStart),
         window_end: Number(windowEnd),
         optout_footer: optoutFooter,
+        footer_text: footerText.trim(),
       })
       const res = await pb.send(`/api/app/campaigns/${draft.id}/start`, { method: 'POST', body: { contactIds: chosen } })
       toast(`Campaña programada: ${res.created} mensajes`)
@@ -116,11 +120,19 @@
         <span class="font-medium">Nombre de la campaña</span>
         <input class="input w-full" bind:value={name} placeholder="Ej. Recordatorio de citas" required />
       </label>
-      <VariantsEditor bind:values={variants} />
-      <label class="flex cursor-pointer items-center gap-2 text-sm">
-        <input type="checkbox" class="checkbox checkbox-sm" bind:checked={optoutFooter} />
-        Agregar "Responde BAJA para no recibir mas mensajes."
-      </label>
+      <VariantsEditor bind:values={variants} suffix={footerSuffix} />
+      <div class="grid gap-2">
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" class="checkbox checkbox-sm" bind:checked={optoutFooter} />
+          Agregar pie de baja al final de cada mensaje
+        </label>
+        {#if optoutFooter}
+          <label class="grid gap-1 text-sm">
+            <span class="text-xs text-base-content/60">Texto del pie ({footerText.trim().length + 1} caracteres con el salto de línea; debe incluir BAJA)</span>
+            <input class="input input-sm w-full max-w-md" bind:value={footerText} maxlength="80" aria-label="Texto del pie de baja" />
+          </label>
+        {/if}
+      </div>
     </section>
 
     <section class="rounded-box border border-base-300 bg-base-100 p-5" aria-labelledby="c2">

@@ -19,8 +19,8 @@ function find(app, collection, id) {
 }
 
 // Lista de registros como array JS (findRecordsByFilter devuelve un slice Go).
-function list(app, collection, filter, sort, limit, params) {
-  const rows = app.findRecordsByFilter(collection, filter, sort, limit, 0, params || {})
+function list(app, collection, filter, sort, limit, params, offset) {
+  const rows = app.findRecordsByFilter(collection, filter, sort, limit, offset || 0, params || {})
   const out = []
   for (let i = 0; i < rows.length; i++) out.push(rows[i])
   return out
@@ -51,4 +51,12 @@ function pullBack(app, queued) {
   return ok
 }
 
-module.exports = Object.freeze({ plain, bodyOf, find, list, findOrNull, pullBack })
+// Valida la cabecera X-API-Key de la API pública y devuelve la configuración.
+function requireApiKey(e) {
+  const cfg = require(`${__hooks}/lib/config.js`).get()
+  const key = e.request.header.get("X-API-Key") || ""
+  if (!cfg.apiKey || !$security.equal(key, cfg.apiKey)) throw new UnauthorizedError("API key inválida")
+  return cfg
+}
+
+module.exports = Object.freeze({ plain, bodyOf, find, list, findOrNull, pullBack, requireApiKey })

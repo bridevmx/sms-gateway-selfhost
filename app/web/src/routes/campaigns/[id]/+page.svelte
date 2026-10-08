@@ -113,7 +113,7 @@
         <dt class="text-base-content/50">Pausa</dt><dd>{campaign.min_delay}–{campaign.max_delay} s</dd>
         <dt class="text-base-content/50">Tope diario</dt><dd>{campaign.daily_limit}</dd>
         <dt class="text-base-content/50">Horario</dt><dd>{campaign.window_start}:00–{campaign.window_end}:00</dd>
-        <dt class="text-base-content/50">Baja</dt><dd>{campaign.optout_footer ? 'Incluye "BAJA"' : 'Sin pie de baja'}</dd>
+        <dt class="text-base-content/50">Baja</dt><dd>{campaign.optout_footer ? `"${campaign.footer_text || 'Responde BAJA para salir'}"` : 'Sin pie de baja'}</dd>
       </dl>
       <h3 class="mb-2 mt-5 text-sm font-medium">Variantes</h3>
       <ul class="grid gap-1.5 text-sm">

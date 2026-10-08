@@ -20,7 +20,7 @@
       onclick={() => (open = false)}
       transition:fade={{ duration: 150 }}
     ></button>
-    <aside
+    <div
       class="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-base-100 shadow-xl"
       role="dialog"
       aria-modal="true"
@@ -37,6 +37,6 @@
       {#if footer}
         <div class="flex flex-wrap justify-end gap-2 border-t border-base-300 px-5 py-3">{@render footer()}</div>
       {/if}
-    </aside>
+    </div>
   </div>
 {/if}
