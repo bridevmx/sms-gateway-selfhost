@@ -208,6 +208,8 @@ Objeto contacto:
 | `GET /api/v1/contacts` | Lista. Parámetros: `q` (busca en nombre y teléfono), `page` (1), `perPage` (50, máx. 200). Devuelve `{items, page, perPage, total}`. |
 | `GET /api/v1/contacts/{id}` | Un contacto. `404` si no existe. |
 | `POST /api/v1/contacts` | Crea. Campos: `phone` (obligatorio), `name` (≤120), `consent` (por defecto `false`), `notes` (≤300). `201`. |
+| `GET /api/v1/contacts/by-phone/{phone}` | ¿Existe? Normaliza el teléfono (`773 123 4567` = `7731234567`). Devuelve `{exists, contact}` (`contact` es `null` si no existe). |
+| `POST /api/v1/contacts/ensure` | "Crear si no existe". Mismos campos que el alta. Si el teléfono ya existe devuelve el contacto sin modificarlo (`200`, `created: false`); si no, lo crea (`201`, `created: true`). Nunca responde `409`. |
 | `PATCH /api/v1/contacts/{id}` | Actualiza solo los campos enviados: `name`, `phone`, `consent`, `notes`. |
 | `DELETE /api/v1/contacts/{id}` | Elimina (`204`). Los mensajes anteriores se conservan en el historial. |
 
@@ -217,6 +219,13 @@ Un teléfono repetido responde `409` con el `id` del contacto existente en el me
 # Crear
 curl -X POST $BASE/api/v1/contacts -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"name": "Ana Pérez", "phone": "7731234567", "consent": true}'
+
+# Guardar solo si no existe (ideal para el formulario de tu web)
+curl -X POST $BASE/api/v1/contacts/ensure -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"name": "Ana Pérez", "phone": "773 123 4567", "consent": true}'
+
+# Verificar si existe
+curl "$BASE/api/v1/contacts/by-phone/7731234567" -H "X-API-Key: $KEY"
 
 # Buscar por teléfono o nombre
 curl "$BASE/api/v1/contacts?q=7731234567" -H "X-API-Key: $KEY"

@@ -59,6 +59,44 @@ routerAdd("POST", "/api/v1/contacts", (e) => {
   return e.json(201, C.contactOut(rec))
 })
 
+// GET /api/v1/contacts/by-phone/{phone}  -> { exists, contact }  (el teléfono se normaliza)
+routerAdd("GET", "/api/v1/contacts/by-phone/{phone}", (e) => {
+  const U = require(`${__hooks}/lib/util.js`)
+  const C = require(`${__hooks}/lib/crud.js`)
+  const P = require(`${__hooks}/lib/phone.js`)
+  const cfg = U.requireApiKey(e)
+
+  const phone = P.normalize(String(e.request.pathValue("phone") || ""), cfg.defaultCountry)
+  if (!phone) throw new BadRequestError("Teléfono inválido")
+  const rec = U.findOrNull(e.app, "contacts", "phone = {:p}", { p: phone })
+  return e.json(200, { exists: !!rec, contact: rec ? C.contactOut(rec) : null })
+})
+
+// POST /api/v1/contacts/ensure { "name", "phone", "consent", "notes" }
+// Idempotente: si el teléfono ya existe lo devuelve SIN modificarlo (200, created:false);
+// si no existe lo crea (201, created:true).
+routerAdd("POST", "/api/v1/contacts/ensure", (e) => {
+  const U = require(`${__hooks}/lib/util.js`)
+  const C = require(`${__hooks}/lib/crud.js`)
+  const P = require(`${__hooks}/lib/phone.js`)
+  const cfg = U.requireApiKey(e)
+
+  const body = U.bodyOf(e)
+  const phone = P.normalize(String(body.phone || ""), cfg.defaultCountry)
+  if (!phone) throw new BadRequestError("Teléfono inválido")
+  const dup = U.findOrNull(e.app, "contacts", "phone = {:p}", { p: phone })
+  if (dup) return e.json(200, { created: false, contact: C.contactOut(dup) })
+
+  const rec = new Record(e.app.findCollectionByNameOrId("contacts"))
+  rec.set("phone", phone)
+  rec.set("name", C.str(body.name, 120))
+  rec.set("notes", C.str(body.notes, 300))
+  rec.set("consent", body.consent === true)
+  rec.set("opted_out", false)
+  e.app.save(rec)
+  return e.json(201, { created: true, contact: C.contactOut(rec) })
+})
+
 // PATCH /api/v1/contacts/{id}   (name, phone, consent, notes; optedOut NO se puede cambiar)
 routerAdd("PATCH", "/api/v1/contacts/{id}", (e) => {
   const U = require(`${__hooks}/lib/util.js`)
